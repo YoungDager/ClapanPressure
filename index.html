@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Klapan Kombat</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    body {
+      background-color: #090a0d;
+      color: #ffffff;
+      font-family: 'Inter', sans-serif;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    /* Внешнее сине-фиолетовое кольцо как на референсе */
+    .tap-ring-outer {
+      background: linear-gradient(180deg, #3b4cca 0%, #1c225c 55%, #111436 100%);
+      box-shadow: 0 0 45px rgba(59, 76, 202, 0.35), inset 0 2px 10px rgba(255, 255, 255, 0.25);
+      transition: transform 0.08s cubic-bezier(0.22, 1, 0.36, 1);
+      transform-style: preserve-3d;
+    }
+
+    .tap-ring-inner {
+      background: radial-gradient(circle at 50% 30%, #263185 0%, #0d1130 85%);
+      box-shadow: inset 0 6px 20px rgba(0, 0, 0, 0.75);
+    }
+
+    /* Всплывающие цифры при клике */
+    @keyframes floatUp {
+      0% {
+        opacity: 1;
+        transform: translate(-50%, 0) scale(0.9);
+      }
+      100% {
+        opacity: 0;
+        transform: translate(-50%, -95px) scale(1.25);
+      }
+    }
+
+    .floating-score {
+      position: fixed;
+      pointer-events: none;
+      font-weight: 800;
+      font-size: 28px;
+      color: #ffffff;
+      text-shadow: 0 4px 12px rgba(0, 0, 0, 0.8), 0 0 10px rgba(250, 204, 21, 0.6);
+      animation: floatUp 0.75s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      z-index: 50;
+    }
+
+    /* Пульсация текста "Дави на клапан" */
+    @keyframes pulseText {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.03); }
+    }
+
+    .klapan-label {
+      animation: pulseText 2.2s infinite ease-in-out;
+    }
+
+    /* Золотая монета */
+    .coin-badge {
+      background: radial-gradient(circle at 30% 30%, #fde047, #eab308 60%, #a16207 100%);
+      box-shadow: 0 2px 10px rgba(234, 179, 8, 0.45), inset 0 1px 2px rgba(255, 255, 255, 0.8);
+    }
+  </style>
+</head>
+<body class="px-4 pt-3 pb-4 max-w-md mx-auto w-full">
+
+  <!-- Верхний заголовок -->
+  <header class="flex items-center justify-between pt-1">
+    <div class="flex items-center gap-2">
+      <h1 class="text-lg font-bold tracking-tight text-white">Klapan Kombat</h1>
+      <span id="rank-badge" class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+        Новичок • 1/10
+      </span>
+    </div>
+    <div class="text-xs text-zinc-400 font-medium" id="user-greeting">Игрок</div>
+  </header>
+
+  <!-- 3 верхние карточки статистики (как в Hamster Kombat) -->
+  <section class="grid grid-cols-3 gap-2.5 mt-3">
+    <div class="bg-[#16181f] border border-white/5 rounded-2xl py-2.5 px-2 text-center">
+      <div class="text-[11px] font-semibold text-amber-400/90 mb-1">За тап</div>
+      <div class="flex items-center justify-center gap-1">
+        <span class="w-4 h-4 rounded-full coin-badge inline-flex items-center justify-center text-[10px] font-extrabold text-amber-950">$</span>
+        <span id="stat-per-tap" class="text-sm font-bold text-white">+1</span>
+      </div>
+    </div>
+
+    <div class="bg-[#16181f] border border-white/5 rounded-2xl py-2.5 px-2 text-center">
+      <div class="text-[11px] font-semibold text-indigo-400 mb-1">До уровня</div>
+      <div class="flex items-center justify-center gap-1">
+        <span class="w-4 h-4 rounded-full coin-badge inline-flex items-center justify-center text-[10px] font-extrabold text-amber-950">$</span>
+        <span id="stat-next-level" class="text-sm font-bold text-white">1 000</span>
+      </div>
+    </div>
+
+    <div class="bg-[#16181f] border border-white/5 rounded-2xl py-2.5 px-2 text-center">
+      <div class="text-[11px] font-semibold text-emerald-400 mb-1">Клапан / час</div>
+      <div class="flex items-center justify-center gap-1">
+        <span class="w-4 h-4 rounded-full coin-badge inline-flex items-center justify-center text-[10px] font-extrabold text-amber-950">$</span>
+        <span id="stat-passive" class="text-sm font-bold text-white">+0</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ВКЛАДКА 1: ГЛАВНЫЙ ЭКРАН (БИРЖА) -->
+  <main id="tab-exchange" class="flex-1 flex flex-col justify-between py-2">
+    
+    <!-- Баланс + Gift и Boost по бокам -->
+    <div class="flex items-center justify-between px-2 mt-2">
+      <button id="btn-gift" type="button" class="flex flex-col items-center gap-1 active:scale-90 transition-transform">
+        <div class="w-11 h-11 rounded-2xl bg-[#16181f] border border-white/10 flex items-center justify-center text-2xl shadow-lg">
+          🎁
+        </div>
+        <span class="text-xs font-semibold text-zinc-200">Бонус</span>
+      </button>
+
+      <div class="flex items-center justify-center gap-2.5">
+        <div class="w-9 h-9 rounded-full coin-badge flex items-center justify-center text-xl font-black text-amber-950">
+          $
+        </div>
+        <div id="balance-display" class="text-4xl font-extrabold tracking-tight text-white">0</div>
+      </div>
+
+      <button id="btn-boost" type="button" class="flex flex-col items-center gap-1 active:scale-90 transition-transform">
+        <div class="w-11 h-11 rounded-2xl bg-[#16181f] border border-white/10 flex items-center justify-center text-2xl shadow-lg">
+          🚀
+        </div>
+        <span class="text-xs font-semibold text-zinc-200">Буст</span>
+      </button>
+    </div>
+
+    <!-- Центральная круглая кнопка с лицом и подписью "Дави на клапан" -->
+    <div class="flex flex-col items-center justify-center my-auto">
+      <div
+        id="tap-button"
+        class="tap-ring-outer w-64 h-64 sm:w-72 sm:h-72 rounded-full p-3.5 flex items-center justify-center cursor-pointer relative"
+      >
+        <div class="tap-ring-inner w-full h-full rounded-full overflow-hidden relative flex items-center justify-center">
+          <!-- Изображение лица (по умолчанию пробует загрузить face.jpg, иначе показывает заглушку) -->
+          <img
+            id="face-image"
+            src="face.jpg"
+            alt="Твоё лицо"
+            class="w-full h-full object-cover pointer-events-none"
+            onerror="this.style.display='none'; document.getElementById('face-fallback').style.display='flex';"
+          />
+          <div id="face-fallback" class="hidden flex-col items-center justify-center text-center p-4">
+            <span class="text-6xl mb-2">😎</span>
+            <span class="text-xs font-semibold text-indigo-200">Загрузи своё фото в «Профиле»</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Главная рофельная надпись снизу -->
+      <div class="mt-4 text-center">
+        <span class="klapan-label inline-block text-xl font-extrabold uppercase tracking-wider text-amber-400 drop-shadow-[0_2px_10px_rgba(251,191,36,0.35)]">
+          Дави на клапан
+        </span>
+      </div>
+    </div>
+
+    <!-- Полоска энергии -->
+    <div class="px-1 mb-1">
+      <div class="flex items-center justify-between text-xs font-bold mb-1.5">
+        <div class="flex items-center gap-1 text-amber-400">
+          <span>⚡</span>
+          <span id="energy-text">1000 / 1000</span>
+        </div>
+        <span class="text-zinc-400" id="turbo-status">Готов к давлению</span>
+      </div>
+      <div class="w-full h-2.5 bg-[#16181f] rounded-full overflow-hidden border border-white/5">
+        <div id="energy-bar" class="h-full bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-300 rounded-full transition-all duration-150" style="width: 100%"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ВКЛАДКА 2: ПРОКАЧКА (МАЙНИНГ) -->
+  <main id="tab-mine" class="hidden flex-1 overflow-y-auto py-3 space-y-2.5">
+    <h2 class="text-base font-bold text-white px-1">Прокачка клапана</h2>
+
+    <div class="bg-[#16181f] border border-white/10 rounded-2xl p-3.5 flex items-center justify-between">
+      <div>
+        <div class="font-bold text-sm text-white">Усилить палец (Мультитап)</div>
+        <div class="text-xs text-zinc-400 mt-0.5">+1 монета за каждое нажатие</div>
+      </div>
+      <button id="buy-multitap" type="button" class="px-3.5 py-2 rounded-xl bg-amber-500 text-black font-bold text-xs active:scale-95 transition-transform">
+        100 $
+      </button>
+    </div>
+
+    <div class="bg-[#16181f] border border-white/10 rounded-2xl p-3.5 flex items-center justify-between">
+      <div>
+        <div class="font-bold text-sm text-white">Расширить бачок (Энергия)</div>
+        <div class="text-xs text-zinc-400 mt-0.5">+500 к запасу энергии</div>
+      </div>
+      <button id="buy-energy" type="button" class="px-3.5 py-2 rounded-xl bg-amber-500 text-black font-bold text-xs active:scale-95 transition-transform">
+        150 $
+      </button>
+    </div>
+
+    <div class="bg-[#16181f] border border-white/10 rounded-2xl p-3.5 flex items-center justify-between">
+      <div>
+        <div class="font-bold text-sm text-white">Авто-насос</div>
+        <div class="text-xs text-zinc-400 mt-0.5">+360 монет в час на автопилоте</div>
+      </div>
+      <button id="buy-passive" type="button" class="px-3.5 py-2 rounded-xl bg-amber-500 text-black font-bold text-xs active:scale-95 transition-transform">
+        250 $
+      </button>
+    </div>
+  </main>
+
+  <!-- ВКЛАДКА 3: ПРОФИЛЬ И ЗАГРУЗКА ФОТО -->
+  <main id="tab-profile" class="hidden flex-1 overflow-y-auto py-3 space-y-3">
+    <h2 class="text-base font-bold text-white px-1">Настройки лица и прогресс</h2>
+
+    <div class="bg-[#16181f] border border-white/10 rounded-2xl p-4 space-y-3">
+      <div class="text-sm font-semibold text-white">Поставить своё лицо на кнопку</div>
+      <p class="text-xs text-zinc-400">Выбери любое фото из галереи — оно сохранится локально в браузере или Telegram.</p>
+      <label class="block w-full text-center py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs cursor-pointer active:scale-95 transition-transform">
+        Выбрать фото из галереи
+        <input id="photo-upload" type="file" accept="image/*" class="hidden" />
+      </label>
+    </div>
+
+    <div class="bg-[#16181f] border border-white/10 rounded-2xl p-4 flex items-center justify-between">
+      <div>
+        <div class="text-sm font-semibold text-white">Сбросить весь прогресс</div>
+        <div class="text-xs text-zinc-400">Начать давить клапан с нуля</div>
+      </div>
+      <button id="reset-game-btn" type="button" class="px-3 py-2 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-400 font-semibold text-xs">
+        Сброс
+      </button>
+    </div>
+  </main>
+
+  <!-- Нижняя панель навигации -->
+  <nav class="bg-[#16181f] border border-white/10 rounded-2xl p-1.5 grid grid-cols-4 gap-1 mt-2">
+    <button type="button" data-tab="exchange" class="nav-btn flex flex-col items-center justify-center py-1.5 rounded-xl bg-white/10 text-white transition-colors">
+      <span class="text-base">🪙</span>
+      <span class="text-[10px] font-semibold mt-0.5">Клапан</span>
+    </button>
+
+    <button type="button" data-tab="mine" class="nav-btn flex flex-col items-center justify-center py-1.5 rounded-xl text-zinc-400 hover:text-white transition-colors">
+      <span class="text-base">⛏️</span>
+      <span class="text-[10px] font-semibold mt-0.5">Прокачка</span>
+    </button>
+
+    <button type="button" id="share-btn" class="flex flex-col items-center justify-center py-1.5 rounded-xl text-zinc-400 hover:text-white transition-colors">
+      <span class="text-base">👥</span>
+      <span class="text-[10px] font-semibold mt-0.5">Друзья</span>
+    </button>
+
+    <button type="button" data-tab="profile" class="nav-btn flex flex-col items-center justify-center py-1.5 rounded-xl text-zinc-400 hover:text-white transition-colors">
+      <span class="text-base">👤</span>
+      <span class="text-[10px] font-semibold mt-0.5">Профиль</span>
+    </button>
+  </nav>
+
+  <!-- Всплывающее уведомление (Toast) -->
+  <div id="toast" class="fixed top-14 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-zinc-900 border border-white/15 text-xs font-semibold text-white shadow-xl opacity-0 pointer-events-none transition-opacity duration-200 z-50">
+    Уведомление
+  </div>
+
+  <script>
+    // Инициализация Telegram Web App
+    const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+      if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+        document.getElementById('user-greeting').textContent = tg.initDataUnsafe.user.first_name || 'Игрок';
+      }
+    }
+
+    const STORAGE_KEY = 'klapan_kombat_save_v1';
+
+    const RANKS = [
+      { name: 'Новичок', threshold: 0 },
+      { name: 'Стажёр', threshold: 1000 },
+      { name: 'Слесарь', threshold: 5000 },
+      { name: 'Механик', threshold: 20000 },
+      { name: 'Инженер', threshold: 100000 },
+      { name: 'Мастер клапана', threshold: 500000 },
+      { name: 'Барон давления', threshold: 2000000 },
+      { name: 'Магнат', threshold: 10000000 },
+      { name: 'Легенда', threshold: 50000000 },
+      { name: 'Бог клапана', threshold: 100000000 }
+    ];
+
+    let state = {
+      balance: 0,
+      totalEarned: 0,
+      perTap: 1,
+      energy: 1000,
+      maxEnergy: 1000,
+      passivePerHour: 0,
+      multitapCost: 100,
+      energyCost: 150,
+      passiveCost: 250,
+      lastGiftTime: 0,
+      turboEndTime: 0,
+      customPhoto: null
+    };
+
+    // Загрузка сохранения
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+      if (saved) state = { ...state, ...saved };
+    } catch (e) {}
+
+    function saveState() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch (e) {}
+    }
+
+    function formatNum(num) {
+      return Math.floor(num).toLocaleString('ru-RU');
+    }
+
+    let toastTimer = null;
+    function showToast(text) {
+      const toast = document.getElementById('toast');
+      toast.textContent = text;
+      toast.classList.remove('opacity-0');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.add('opacity-0'), 2000);
+    }
+
+    // Применение сохранённого фото лица
+    function applyCustomPhoto() {
+      if (state.customPhoto) {
+        const img = document.getElementById('face-image');
+        const fallback = document.getElementById('face-fallback');
+        img.src = state.customPhoto;
+        img.style.display = 'block';
+        fallback.style.display = 'none';
+      }
+    }
+
+    function updateUI() {
+      const isTurbo = Date.now() < state.turboEndTime;
+      const effectiveTap = isTurbo ? state.perTap * 3 : state.perTap;
+
+      document.getElementById('balance-display').textContent = formatNum(state.balance);
+      document.getElementById('stat-per-tap').textContent = `+${formatNum(effectiveTap)}`;
+      document.getElementById('stat-passive').textContent = `+${formatNum(state.passivePerHour)}`;
+      document.getElementById('energy-text').textContent = `${Math.floor(state.energy)} / ${state.maxEnergy}`;
+      document.getElementById('energy-bar').style.width = `${Math.min(100, (state.energy / state.maxEnergy) * 100)}%`;
+
+      document.getElementById('turbo-status').textContent = isTurbo ? '🔥 ТУРБО x3!' : 'Готов к давлению';
+      document.getElementById('turbo-status').className = isTurbo ? 'text-amber-400 font-extrabold' : 'text-zinc-400';
+
+      // Определение уровня
+      let rankIdx = 0;
+      for (let i = RANKS.length - 1; i >= 0; i--) {
+        if (state.totalEarned >= RANKS[i].threshold) {
+          rankIdx = i;
+          break;
+        }
+      }
+      const nextRank = RANKS[rankIdx + 1];
+      document.getElementById('rank-badge').textContent = `${RANKS[rankIdx].name} • ${rankIdx + 1}/10`;
+      document.getElementById('stat-next-level').textContent = nextRank ? formatNum(nextRank.threshold) : 'MAX';
+
+      // Кнопки магазина
+      document.getElementById('buy-multitap').textContent = `${formatNum(state.multitapCost)} $`;
+      document.getElementById('buy-energy').textContent = `${formatNum(state.energyCost)} $`;
+      document.getElementById('buy-passive').textContent = `${formatNum(state.passiveCost)} $`;
+    }
+
+    // Обработка нажатий по круглой кнопке (поддержка мультитача)
+    const tapBtn = document.getElementById('tap-button');
+
+    function handleTap(clientX, clientY) {
+      const isTurbo = Date.now() < state.turboEndTime;
+      const gain = isTurbo ? state.perTap * 3 : state.perTap;
+
+      if (!isTurbo && state.energy < state.perTap) {
+        showToast('Энергия закончилась, дай клапану остыть!');
+        return;
+      }
+
+      if (!isTurbo) {
+        state.energy = Math.max(0, state.energy - state.perTap);
+      }
+
+      state.balance += gain;
+      state.totalEarned += gain;
+
+      // Вибрация в Telegram
+      if (tg && tg.HapticFeedback) {
+        tg.HapticFeedback.impactOccurred('medium');
+      }
+
+      // 3D-наклон кнопки в сторону пальца
+      const rect = tapBtn.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const rotateY = ((clientX - centerX) / (rect.width / 2)) * 14;
+      const rotateX = -((clientY - centerY) / (rect.height / 2)) * 14;
+
+      tapBtn.style.transform = `perspective(600px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale(0.95)`;
+      setTimeout(() => {
+        tapBtn.style.transform = 'perspective(600px) rotateX(0deg) rotateY(0deg) scale(1)';
+      }, 90);
+
+      // Всплывающая цифра +1
+      const floater = document.createElement('div');
+      floater.className = 'floating-score';
+      floater.textContent = `+${gain}`;
+      floater.style.left = `${clientX}px`;
+      floater.style.top = `${clientY - 20}px`;
+      document.body.appendChild(floater);
+      setTimeout(() => floater.remove(), 750);
+
+      updateUI();
+      saveState();
+    }
+
+    tapBtn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      handleTap(e.clientX, e.clientY);
+    });
+
+    // Кнопка Бонус (Gift)
+    document.getElementById('btn-gift').addEventListener('click', () => {
+      const cooldown = 60 * 1000; // раз в минуту для веселья
+      const diff = Date.now() - state.lastGiftTime;
+      if (diff < cooldown) {
+        const sec = Math.ceil((cooldown - diff) / 1000);
+        showToast(`Следующий бонус через ${sec} сек.`);
+        return;
+      }
+      const reward = Math.max(100, state.perTap * 50);
+      state.balance += reward;
+      state.totalEarned += reward;
+      state.lastGiftTime = Date.now();
+      showToast(`🎁 Бонус получен: +${formatNum(reward)} $`);
+      updateUI();
+      saveState();
+    });
+
+    // Кнопка Буст (Турбо x3 на 15 секунд + полная энергия)
+    document.getElementById('btn-boost').addEventListener('click', () => {
+      if (Date.now() < state.turboEndTime) {
+        showToast('Турбо-режим уже активен!');
+        return;
+      }
+      state.energy = state.maxEnergy;
+      state.turboEndTime = Date.now() + 15000;
+      showToast('🚀 ТУРБО x3 на 15 секунд и полная энергия!');
+      updateUI();
+    });
+
+    // Покупка улучшений
+    document.getElementById('buy-multitap').addEventListener('click', () => {
+      if (state.balance < state.multitapCost) return showToast('Не хватает монет!');
+      state.balance -= state.multitapCost;
+      state.perTap += 1;
+      state.multitapCost = Math.round(state.multitapCost * 1.8);
+      showToast('Палец прокачан!');
+      updateUI();
+      saveState();
+    });
+
+    document.getElementById('buy-energy').addEventListener('click', () => {
+      if (state.balance < state.energyCost) return showToast('Не хватает монет!');
+      state.balance -= state.energyCost;
+      state.maxEnergy += 500;
+      state.energy = state.maxEnergy;
+      state.energyCost = Math.round(state.energyCost * 1.7);
+      showToast('Запас энергии увеличен!');
+      updateUI();
+      saveState();
+    });
+
+    document.getElementById('buy-passive').addEventListener('click', () => {
+      if (state.balance < state.passiveCost) return showToast('Не хватает монет!');
+      state.balance -= state.passiveCost;
+      state.passivePerHour += 360;
+      state.passiveCost = Math.round(state.passiveCost * 1.75);
+      showToast('Авто-насос установлен!');
+      updateUI();
+      saveState();
+    });
+
+    // Переключение вкладок
+    const tabs = {
+      exchange: document.getElementById('tab-exchange'),
+      mine: document.getElementById('tab-mine'),
+      profile: document.getElementById('tab-profile')
+    };
+
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const target = btn.dataset.tab;
+        Object.entries(tabs).forEach(([key, el]) => {
+          el.classList.toggle('hidden', key !== target);
+        });
+        document.querySelectorAll('.nav-btn').forEach(b => {
+          b.classList.remove('bg-white/10', 'text-white');
+          b.classList.add('text-zinc-400');
+        });
+        btn.classList.add('bg-white/10', 'text-white');
+        btn.classList.remove('text-zinc-400');
+      });
+    });
+
+    // Кнопка "Друзья" — отправка ссылки в Telegram
+    document.getElementById('share-btn').addEventListener('click', () => {
+      const shareText = encodeURIComponent(`Я надавил уже ${formatNum(state.balance)} монет в Klapan Kombat! Заходи давить на клапан!`);
+      const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${shareText}`;
+      if (tg) {
+        tg.openTelegramLink(shareUrl);
+      } else {
+        window.open(shareUrl, '_blank');
+      }
+    });
+
+    // Загрузка своего фото в профиле
+    document.getElementById('photo-upload').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        state.customPhoto = event.target.result;
+        applyCustomPhoto();
+        saveState();
+        showToast('Фото установлено!');
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // Сброс игры
+    document.getElementById('reset-game-btn').addEventListener('click', () => {
+      localStorage.removeItem(STORAGE_KEY);
+      location.reload();
+    });
+
+    // Восстановление энергии и пассивный доход каждую секунду
+    setInterval(() => {
+      if (state.energy < state.maxEnergy) {
+        state.energy = Math.min(state.maxEnergy, state.energy + 3);
+      }
+      if (state.passivePerHour > 0) {
+        const perSec = state.passivePerHour / 3600;
+        state.balance += perSec;
+        state.totalEarned += perSec;
+      }
+      updateUI();
+    }, 1000);
+
+    applyCustomPhoto();
+    updateUI();
+  </script>
+</body>
+</html>
